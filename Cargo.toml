@@ -1,0 +1,14 @@
+[package]
+name = "kellum_library"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4"
+
+[dependencies.uuid]
+version = "1.16.0"
+# Lets you generate random UUIDs
+features = [
+    "v4",
+]
