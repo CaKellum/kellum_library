@@ -1,6 +1,8 @@
-use actix_web::{delete, get, post, put, web::{ self, Path}, App, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, get, post, put, web::{ self, Path, Json}, App, HttpResponse, HttpServer, Responder};
 use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 enum PlatformType {
    Playstation1, Playstation2, Playstation3, Playstation4, Playstation5,
    NES, SNES, N64, GameCube, Wii, WiiU, Switch, Switch2,
@@ -53,6 +55,7 @@ impl PlatformType {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 enum ESRBRating { 
     Everyone, Everyone10, Teen, Mature, AdultOnly 
 }
@@ -80,6 +83,7 @@ impl ESRBRating {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Game {
     id: String,
     title: String,
@@ -96,40 +100,50 @@ impl Game {
    }
 }
 
-#[post("/game")]
-async fn add_game(req_body: String) -> impl Responder {
-    return HttpResponse::Ok().body("add Game");
+#[post("/new")]
+async fn add_game(new_game: Json<Game>) -> impl Responder {
+    let real_new_game = Game::new(new_game.title.clone(), &new_game.platform.string(), 
+                                  &new_game.rating.string(), new_game.number_of_players);
+    return HttpResponse::Ok().body("added Game {real_new_game.id}");
 }
 
-#[get("/games")]
+#[get("/all")]
 async fn get_all_games() -> impl Responder {
     return HttpResponse::Ok().body("all games");
 }
 
-#[get("/game/{id}")]
+#[get("/{id}")]
 async fn get_games(path: Path<(String,)>) -> impl Responder {
-    return HttpResponse::Ok().body("get game with id");
+    let id = path.into_inner().0;
+    return HttpResponse::Ok().body("get game with {id}");
 }
 
-#[put("/game")]
-async fn update_game_with(req_body: String) -> impl Responder {
-    return HttpResponse::Ok().body("update game");
+#[put("/update")]
+async fn update_game_with(updated_game: Json<Game>) -> impl Responder {
+    return HttpResponse::Ok().body("update game {update_game.id}");
 }
 
-#[delete("/game/{id}")]
+#[delete("/remove/{id}")]
 async fn delete_game_with(path: Path<(String,)>) -> impl Responder {
     return HttpResponse::Ok().body("delete game");
 }
 
-#[delete("/game/all")]
+#[delete("/remove/all")]
 async fn delete_all_games() -> impl Responder {
     return HttpResponse::Ok().body("delete all games");
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
-   HttpServer::new(|| App::new().route("/",web::get().to(HttpResponse::Ok)))
-       .bind(("127.0.0.1", 8080))?
-       .run()
-       .await
+async fn main() -> Result<(), std::io::Error> {
+    
+    HttpServer::new(|| {
+        let scope = web::scope("/game")
+            .service(add_game)
+            .service(get_all_games)
+            .service(get_games)
+            .service(update_game_with)
+            .service(delete_game_with)
+            .service(delete_all_games);
+        App::new().service(scope)
+    }).bind(("127.0.0.1", 8080))?.run().await
 }
