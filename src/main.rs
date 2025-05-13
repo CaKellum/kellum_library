@@ -1,6 +1,7 @@
 use actix_web::{delete, get, post, put, web::{ self, Path, Json}, App, HttpResponse, HttpServer, Responder};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use sqlite;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 enum PlatformType {
@@ -100,36 +101,74 @@ impl Game {
    }
 }
 
+struct GameDataBase;
+impl GameDataBase {
+    
+    fn get_connection() -> Option<sqlite::Connection> {
+        return match sqlite::open("kellum_library.db") {
+            Ok(conn) => Some(conn),
+            Error => None,
+        };
+    }
+
+    fn get_game_with_id(id: &str) -> Option<Game> {
+        return None;
+    }
+
+    fn get_games() -> Option<Vec<Game>> {
+        return None;
+    }
+
+    fn delete_game(id: Option<&str>) -> bool {
+        return false;
+    }
+
+    fn update_game(updated_game: Game) -> bool {
+        return false;
+    }
+
+    fn insert_game(new_game: Game) -> bool {
+        return false;
+    }
+}
+
 #[post("/new")]
 async fn add_game(new_game: Json<Game>) -> impl Responder {
     let real_new_game = Game::new(new_game.title.clone(), &new_game.platform.string(), 
                                   &new_game.rating.string(), new_game.number_of_players);
+    GameDataBase::insert_game(real_new_game);
     return HttpResponse::Ok().body("added Game {real_new_game.id}");
 }
 
 #[get("/all")]
 async fn get_all_games() -> impl Responder {
+    let games = GameDataBase::get_all_games();
     return HttpResponse::Ok().body("all games");
 }
 
 #[get("/{id}")]
 async fn get_games(path: Path<(String,)>) -> impl Responder {
     let id = path.into_inner().0;
+    let game = GameDataBase::get_game_with_id(id);
     return HttpResponse::Ok().body("get game with {id}");
 }
 
 #[put("/update")]
 async fn update_game_with(updated_game: Json<Game>) -> impl Responder {
+    let was_updated = GameDataBase::update_game(updated_game);
     return HttpResponse::Ok().body("update game {update_game.id}");
 }
 
 #[delete("/remove/{id}")]
 async fn delete_game_with(path: Path<(String,)>) -> impl Responder {
+    let id = path.into_inner().0;
+    let was_deleted = GameDataBase::delete_game_id(id);
     return HttpResponse::Ok().body("delete game");
 }
 
 #[delete("/remove/all")]
 async fn delete_all_games() -> impl Responder {
+    let was_deleted = GameDataBase::delete_all_games();
     return HttpResponse::Ok().body("delete all games");
 }
 
