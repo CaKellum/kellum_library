@@ -1,14 +1,16 @@
-use actix_web::{delete, get, post, put, web::{ self, Path, Json}, App, HttpResponse, HttpServer, Responder};
+use std::usize;
+use actix_web::{delete, error, get, http::{header::ContentType, StatusCode},
+                post, put, web::{ self, Json, Path}, App, HttpResponse, HttpServer, Responder};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
-use sqlite;
+use derive_more::derive::{Display, Error};
+use rusqlite::{Connection};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 enum PlatformType {
    Playstation1, Playstation2, Playstation3, Playstation4, Playstation5,
    NES, SNES, N64, GameCube, Wii, WiiU, Switch, Switch2,
-   NintendoDS, Nintendo3DS,
-   Computer
+   NintendoDS, Nintendo3DS, Computer
 }
 
 impl PlatformType {
@@ -101,75 +103,167 @@ impl Game {
    }
 }
 
+#[derive(Debug, Display, Error)]
+enum ServiceError {
+    #[display("failed to connect to DB.")]
+    ConnectionFailure,
+    #[display("Failed to find a game for specified id")]
+    GameNotFound,
+}
+
+impl error::ResponseError for ServiceError {
+    fn error_response(&self) -> HttpResponse<actix_web::body::BoxBody> {
+        return HttpResponse::build(self.status_code())
+            .insert_header(ContentType::plaintext())
+            .body(self.to_string());
+    }
+
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        return match *self {
+           Self::ConnectionFailure => StatusCode::INTERNAL_SERVER_ERROR, 
+           Self::GameNotFound => StatusCode::NOT_FOUND,
+        };
+    }
+}
 struct GameDataBase;
 impl GameDataBase {
     
-    fn get_connection() -> Option<sqlite::Connection> {
-        return match sqlite::open("kellum_library.db") {
-            Ok(conn) => Some(conn),
-            Error => None,
+    async fn get_connection() -> Result<rusqlite::Connection, ServiceError> {
+        return match Connection::open("kellum_library.db") {
+            Ok(conn) => Ok(conn),
+            Err(_) => Err(ServiceError::ConnectionFailure),
         };
     }
 
-    fn get_game_with_id(id: &str) -> Option<Game> {
-        return None;
+    async fn get_game_with_id(id: String) -> Result<Option<Game>, ServiceError> {
+        let conn = GameDataBase::get_connection().await?;
+        let res = conn.query_row_and_then("SELECT id, title, platform, rating, number_of_players FROM games WHERE id=1?", [id],
+            |row| {
+                if let Ok(id) = row.get::<usize, String>(0) {
+                    if let Ok(title) = row.get::<usize, String>(1) {
+                        if let Ok(platform_string) = row.get::<usize, String>(2) { 
+                            if let Ok(rating_string) = row.get::<usize, String>(3) { 
+                                if let Ok(number) = row.get::<usize, u8>(4) {
+                                    return Ok(Game{id,
+                                                   title: title.to_string(),
+                                                   platform: PlatformType::platform_from_string(&platform_string),
+                                                   rating: ESRBRating::rating_from_string(&rating_string),
+                                                   number_of_players: number});
+                                }
+                            }
+                        }
+                    }
+                }
+                return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real,
+                        Box::new(ServiceError::GameNotFound)));
+        });
+        let interpreted_res = match res {
+            Ok(game) => Ok(Some(game)),
+            Err(_) => Err(ServiceError::GameNotFound)
+        };
+        return Ok(interpreted_res?);
     }
 
-    fn get_games() -> Option<Vec<Game>> {
-        return None;
+    async fn get_games() -> Result<Option<Vec<Game>>, ServiceError> {
+        let conn = GameDataBase::get_connection().await?;
+        let mut statment = conn.prepare("SELECT id, title, platform, rating, number_of_players FROM games").unwrap();
+        let games_res = statment.query_map([], |row| {
+            return Ok(Game{
+                id: row.get::<usize, String>(0)?,
+                title: row.get::<usize, String>(1)?,
+                platform: PlatformType::platform_from_string(&row.get::<usize, String>(2)?),
+                rating: ESRBRating::rating_from_string(&row.get::<usize, String>(3)?),
+                number_of_players: row.get::<usize, u8>(4)?
+            });
+        });
+        return match games_res {
+            Ok(game_map) => {
+                let mut game_list = vec![];
+                game_map.for_each(|game| {
+                    match game {
+                        Ok(game) => game_list.push(game),
+                        Err(_) => {}
+                    }
+                });
+                return Ok(Some(game_list));
+            },
+            Err(_) => Err(ServiceError::GameNotFound)
+        };
     }
 
-    fn delete_game(id: Option<&str>) -> bool {
-        return false;
+    async fn delete_game(id: Option<String>) -> Result<bool, ServiceError> {
+        let conn = GameDataBase::get_connection().await?;
+        let result = match id {
+            Some(id) => conn.execute("DELETE FROM games WHERE id=?1",[id]),
+            None => conn.execute("DROP TABLE games", []) 
+        };
+        return match result { Ok(_) => Ok(true), Err(_) => Ok(false) };
     }
 
-    fn update_game(updated_game: Game) -> bool {
-        return false;
+    async fn update_game(updated_game: Game) -> Result<bool, ServiceError> {
+        let conn = GameDataBase::get_connection().await?;
+        let statement_result = conn.execute("UPDATE games 
+                                             SET title=?1, platform=?2, rating=?3, number_of_players=?4 
+                                             WHERE id=?5", 
+                                             [updated_game.title, updated_game.platform.string(),
+                                             updated_game.number_of_players.to_string()]);
+        return match statement_result { Ok(_) => Ok(true), Err(_) => Ok(false) };
     }
 
-    fn insert_game(new_game: Game) -> bool {
-        return false;
+    async fn insert_game(new_game: Game) -> Result<bool, ServiceError> {
+        let conn = GameDataBase::get_connection().await?;
+        let statement_result = conn.execute("INSERT INTO games (id, title, platform, rating, number_of_players) 
+                                             VALUES (?1,?2,?3,?4,?5);", 
+                                            [new_game.id, new_game.title, new_game.platform.string(),
+                                            new_game.rating.string(),new_game.number_of_players.to_string()]);
+        return match statement_result { Ok(_) => Ok(true), Err(_) => Ok(false) };
     }
 }
 
 #[post("/new")]
-async fn add_game(new_game: Json<Game>) -> impl Responder {
+async fn add_game(new_game: Json<Game>) -> Result<impl Responder, ServiceError> {
     let real_new_game = Game::new(new_game.title.clone(), &new_game.platform.string(), 
                                   &new_game.rating.string(), new_game.number_of_players);
-    GameDataBase::insert_game(real_new_game);
-    return HttpResponse::Ok().body("added Game {real_new_game.id}");
+    let did_insert = GameDataBase::insert_game(real_new_game).await?;
+    return Ok(HttpResponse::Ok().json(did_insert));
 }
 
 #[get("/all")]
-async fn get_all_games() -> impl Responder {
-    let games = GameDataBase::get_all_games();
-    return HttpResponse::Ok().body("all games");
+async fn get_all_games() -> Result<impl Responder, ServiceError> {
+    let resp = match GameDataBase::get_games().await? {
+        Some(games) => HttpResponse::Ok().json(games),
+        None => HttpResponse::NotFound().body("games not Found")
+    };
+    return Ok(resp);
 }
 
 #[get("/{id}")]
-async fn get_games(path: Path<(String,)>) -> impl Responder {
+async fn get_games(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
     let id = path.into_inner().0;
-    let game = GameDataBase::get_game_with_id(id);
-    return HttpResponse::Ok().body("get game with {id}");
+    let resp = match GameDataBase::get_game_with_id(id).await? {
+        Some(game) => HttpResponse::Ok().json(game),
+        None => HttpResponse::NotFound().body("games not Found")
+    };
+    return Ok(resp);
 }
 
 #[put("/update")]
-async fn update_game_with(updated_game: Json<Game>) -> impl Responder {
-    let was_updated = GameDataBase::update_game(updated_game);
-    return HttpResponse::Ok().body("update game {update_game.id}");
+async fn update_game_with(updated_game: Json<Game>) -> Result<impl Responder, ServiceError> {
+    let was_updated = GameDataBase::update_game(updated_game.into_inner()).await?;
+    return Ok(HttpResponse::Ok().json(was_updated));
 }
 
 #[delete("/remove/{id}")]
-async fn delete_game_with(path: Path<(String,)>) -> impl Responder {
+async fn delete_game_with(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
     let id = path.into_inner().0;
-    let was_deleted = GameDataBase::delete_game_id(id);
-    return HttpResponse::Ok().body("delete game");
+    let was_deleted = GameDataBase::delete_game(Some(id)).await?;
+    return Ok(HttpResponse::Ok().json(was_deleted));
 }
 
 #[delete("/remove/all")]
-async fn delete_all_games() -> impl Responder {
-    let was_deleted = GameDataBase::delete_all_games();
-    return HttpResponse::Ok().body("delete all games");
+async fn delete_all_games() -> Result<impl Responder, ServiceError> {
+    let was_deleted = GameDataBase::delete_game(None).await?;
+    return Ok(HttpResponse::Ok().json(was_deleted));
 }
 
 #[actix_web::main]
