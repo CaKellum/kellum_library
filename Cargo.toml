@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+actix = "0.13.5"
 actix-web = "4"
 derive_more = "2.0.1"
 rusqlite = "0.35.0"

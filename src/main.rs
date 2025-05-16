@@ -1,6 +1,9 @@
 use std::usize;
-use actix_web::{delete, error, get, http::{header::ContentType, StatusCode},
-                post, put, web::{ self, Json, Path}, App, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, error, get,
+                http::{header::ContentType, StatusCode}, 
+                middleware::{from_fn, Next}, post, put, 
+                web::{ self, Json, Path}, App, HttpResponse, HttpServer, Responder, 
+                dev::{ServiceRequest, ServiceResponse}, body::MessageBody, Error};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use derive_more::derive::{Display, Error};
@@ -129,6 +132,7 @@ struct GameDataBase;
 impl GameDataBase {
     
     async fn get_connection() -> Result<rusqlite::Connection, ServiceError> {
+        println!("getting connection");
         return match Connection::open("kellum_library.db") {
             Ok(conn) => Ok(conn),
             Err(_) => Err(ServiceError::ConnectionFailure),
@@ -157,6 +161,7 @@ impl GameDataBase {
                 return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real,
                         Box::new(ServiceError::GameNotFound)));
         });
+        println!("getting game");
         let interpreted_res = match res {
             Ok(game) => Ok(Some(game)),
             Err(_) => Err(ServiceError::GameNotFound)
@@ -176,6 +181,7 @@ impl GameDataBase {
                 number_of_players: row.get::<usize, u8>(4)?
             });
         });
+        println!("getting game");
         return match games_res {
             Ok(game_map) => {
                 let mut game_list = vec![];
@@ -197,6 +203,7 @@ impl GameDataBase {
             Some(id) => conn.execute("DELETE FROM games WHERE id=?1",[id]),
             None => conn.execute("DROP TABLE games", []) 
         };
+        println!("deleting game");
         return match result { Ok(_) => Ok(true), Err(_) => Ok(false) };
     }
 
@@ -207,6 +214,7 @@ impl GameDataBase {
                                              WHERE id=?5", 
                                              [updated_game.title, updated_game.platform.string(),
                                              updated_game.number_of_players.to_string()]);
+        println!("updating game new");
         return match statement_result { Ok(_) => Ok(true), Err(_) => Ok(false) };
     }
 
@@ -216,6 +224,7 @@ impl GameDataBase {
                                              VALUES (?1,?2,?3,?4,?5);", 
                                             [new_game.id, new_game.title, new_game.platform.string(),
                                             new_game.rating.string(),new_game.number_of_players.to_string()]);
+        println!("receving game new");
         return match statement_result { Ok(_) => Ok(true), Err(_) => Ok(false) };
     }
 }
@@ -225,6 +234,7 @@ async fn add_game(new_game: Json<Game>) -> Result<impl Responder, ServiceError> 
     let real_new_game = Game::new(new_game.title.clone(), &new_game.platform.string(), 
                                   &new_game.rating.string(), new_game.number_of_players);
     let did_insert = GameDataBase::insert_game(real_new_game).await?;
+    println!("receving game new");
     return Ok(HttpResponse::Ok().json(did_insert));
 }
 
@@ -234,6 +244,7 @@ async fn get_all_games() -> Result<impl Responder, ServiceError> {
         Some(games) => HttpResponse::Ok().json(games),
         None => HttpResponse::NotFound().body("games not Found")
     };
+    println!("game responding");
     return Ok(resp);
 }
 
@@ -244,12 +255,14 @@ async fn get_games(path: Path<(String,)>) -> Result<impl Responder, ServiceError
         Some(game) => HttpResponse::Ok().json(game),
         None => HttpResponse::NotFound().body("games not Found")
     };
+    println!("game responding");
     return Ok(resp);
 }
 
 #[put("/update")]
 async fn update_game_with(updated_game: Json<Game>) -> Result<impl Responder, ServiceError> {
     let was_updated = GameDataBase::update_game(updated_game.into_inner()).await?;
+    println!("game responding {}", was_updated);
     return Ok(HttpResponse::Ok().json(was_updated));
 }
 
@@ -257,18 +270,25 @@ async fn update_game_with(updated_game: Json<Game>) -> Result<impl Responder, Se
 async fn delete_game_with(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
     let id = path.into_inner().0;
     let was_deleted = GameDataBase::delete_game(Some(id)).await?;
+    println!("game responding {}", was_deleted);
     return Ok(HttpResponse::Ok().json(was_deleted));
 }
 
 #[delete("/remove/all")]
 async fn delete_all_games() -> Result<impl Responder, ServiceError> {
     let was_deleted = GameDataBase::delete_game(None).await?;
+    println!("game responding {}", was_deleted);
     return Ok(HttpResponse::Ok().json(was_deleted));
+}
+
+async fn my_middleware(req: ServiceRequest, next: Next<impl MessageBody>,) -> Result<ServiceResponse<impl MessageBody>, Error> {
+    // pre-processing
+    next.call(req).await
+    // post-processing
 }
 
 #[actix_web::main]
 async fn main() -> Result<(), std::io::Error> {
-    
     HttpServer::new(|| {
         let scope = web::scope("/game")
             .service(add_game)
@@ -277,6 +297,6 @@ async fn main() -> Result<(), std::io::Error> {
             .service(update_game_with)
             .service(delete_game_with)
             .service(delete_all_games);
-        App::new().service(scope)
+        App::new().service(scope).wrap(from_fn(my_middleware))
     }).bind(("127.0.0.1", 8080))?.run().await
 }
