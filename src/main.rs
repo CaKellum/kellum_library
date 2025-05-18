@@ -241,7 +241,8 @@ impl MovieDataBase {
                                       format, rating });
                 }
             }
-            return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real, Box::new(ServiceError::GameNotFound)));
+            return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real, 
+                       Box::new(ServiceError::FailedToMakeMovie)));
         });
         return match res {
             Ok(movie) => Ok(Some(movie)),
@@ -259,7 +260,7 @@ impl MovieDataBase {
                }
            }
            return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real,
-                      Box::new(ServiceError::GameNotFound)));
+                      Box::new(ServiceError::FailedToMakeMovie)));
         });
        return match res {
            Ok(movies) => {
@@ -315,24 +316,14 @@ impl GameDataBase {
         let conn = GameDataBase::get_connection().await?;
         let res = conn.query_row_and_then("SELECT id, title, platform, rating, number_of_players FROM games WHERE id=1?", [id],
             |row| {
-                if let Ok(id) = row.get::<usize, String>(0) {
-                    if let Ok(title) = row.get::<usize, String>(1) {
-                        if let Ok(platform_string) = row.get::<usize, String>(2) { 
-                            if let Ok(rating_string) = row.get::<usize, String>(3) { 
-                                if let Ok(number) = row.get::<usize, u8>(4) {
-                                    if let Some(platform) = PlatformType::platform_from_string(&platform_string) {
-                                        if let Some(rating) = ESRBRating::rating_from_string(&rating_string) {
-                                            return Ok(Game{id, title: title.to_string(), platform, rating,
-                                                           number_of_players: number});
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                if let Some(platform) = PlatformType::platform_from_string(&row.get::<usize, String>(2)?) {
+                    if let Some(rating) = ESRBRating::rating_from_string(&row.get::<usize, String>(3)?) {
+                        return Ok(Game{id: row.get::<usize, String>(0)?, title: row.get::<usize, String>(1)?.to_string(), 
+                                       platform, rating, number_of_players: row.get::<usize, u8>(4)?});
                     }
                 }
-                return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real,
-                        Box::new(ServiceError::GameNotFound)));
+                return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real, 
+                           Box::new(ServiceError::FailedToMakeGame)));
         });
         let interpreted_res = match res {
             Ok(game) => Ok(Some(game)),
@@ -354,7 +345,7 @@ impl GameDataBase {
                     }
                 }
                 return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real,
-                        Box::new(ServiceError::GameNotFound)));
+                           Box::new(ServiceError::FailedToMakeGame)));
         });
         return match games_res {
             Ok(game_map) => {
@@ -512,7 +503,13 @@ async fn main() -> Result<(), std::io::Error> {
             .service(update_game_with)
             .service(delete_game_with)
             .service(delete_all_games);
-        let movie_scope = web::scope("/movie");
+        let movie_scope = web::scope("/movie")
+            .service(add_movie)
+            .service(get_all_movies)
+            .service(get_movie)
+            .service(update_movie_with)
+            .service(delete_all_movies)
+            .service(delete_movie_with);
         App::new()
             .service(game_scope)
             .service(movie_scope)
