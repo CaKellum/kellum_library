@@ -1,4 +1,4 @@
-use std::{usize,env};
+use std::{env, usize};
 use actix_web::{body::MessageBody, delete, dev::{ServiceRequest, ServiceResponse}, error, get, http::{header::ContentType, StatusCode}, middleware::{from_fn, Next}, post, put, web::{ self, Json, Path}, App, Error, HttpResponse, HttpServer, Responder};
 use derive_more::derive::{Display, Error};
 use rusqlite::Connection;
@@ -102,27 +102,59 @@ impl Game {
    }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 enum MPAARating {
-    GeneralAudiences,
-    ParentalGuidance,
-    ParentsStronglyCautioned,
-    Restricted,
-    AdultsOnly
+    GeneralAudiences, ParentalGuidance, ParentsStronglyCautioned,
+    Restricted, AdultsOnly
 }
 
 impl MPAARating {
    fn from_string(rating_string: &str) -> Option<Self> {
        match rating_string {
+           "GeneralAudiences" => Some(Self::GeneralAudiences),
+           "ParentalGuidance" => Some(Self::ParentalGuidance),
+           "ParentsStronglyCautioned" => Some(Self::ParentsStronglyCautioned),
+           "Restricted" => Some(Self::Restricted),
+           "AdultsOnly" => Some(Self::AdultsOnly),
            _ => None
        }
    }
+
+   fn string(&self) -> String {
+      match self {
+          Self::GeneralAudiences => "GeneralAudiences".to_string(),
+          Self::ParentalGuidance => "ParentalGuidance".to_string(),
+          Self::ParentsStronglyCautioned => "ParentsStronglyCautioned".to_string(),
+          Self::Restricted => "Restricted".to_string(),
+          Self::AdultsOnly => "AdultsOnly".to_string(),
+      }
+   }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 enum MotionPictureFormat {
-   BluRay,
-   UltraHD,
-   DVD,
-   VHS
+   BluRay, UltraHD, DVD, VHS
+}
+
+impl MotionPictureFormat {
+   fn from_string(rating_string: &str) -> Option<Self> {
+       match rating_string {
+           "BluRay" => Some(Self::BluRay),
+           "UltraHD" => Some(Self::UltraHD),
+           "DVD" => Some(Self::DVD),
+           "VHS" => Some(Self::VHS),
+          _ => None 
+       }
+   }
+
+   fn string(&self) -> String {
+       match self {
+          Self::BluRay => "BluRay".to_string(),
+          Self::DVD => "DVD".to_string(),
+          Self::UltraHD => "UltraHD".to_string(),
+          Self::VHS => "VHS".to_string(),
+       }
+   }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -133,7 +165,12 @@ struct Movie {
     rating: MPAARating
 }
 
-impl Movie { 
+impl Movie {
+    fn new(title: &str, format: &str, rating: &str) -> Option<Self> {
+        let format = MotionPictureFormat::from_string(format)?;
+        let rating = MPAARating::from_string(rating)?; 
+        return Some(Movie {id: Uuid::new_v4().to_string(), title: title.to_string(), format, rating});
+    }
 }
 
 #[derive(Debug, Display, Error)]
@@ -142,8 +179,16 @@ enum ServiceError {
     ConnectionFailure,
     #[display("Failed to find a game for specified id")]
     GameNotFound,
+    #[display("Failed to find a movie for specified id")]
+    MovieNotFound,
     #[display("Failed to make new game")]
     FailedToMakeGame,
+    #[display("Failed to make new movie")]
+    FailedToMakeMovie,
+    #[display("Failed to update game")]
+    FailedToUpdateGame,
+    #[display("Failed to update movie")]
+    FailedToUpdateMovie
 }
 
 impl error::ResponseError for ServiceError {
@@ -154,16 +199,110 @@ impl error::ResponseError for ServiceError {
     }
 
     fn status_code(&self) -> actix_web::http::StatusCode {
-        return match *self {
+        return match self {
            Self::ConnectionFailure => StatusCode::INTERNAL_SERVER_ERROR, 
            Self::GameNotFound => StatusCode::NOT_FOUND,
-           Self::FailedToMakeGame => StatusCode::IM_A_TEAPOT
+           Self::MovieNotFound => StatusCode::NOT_FOUND,
+           Self::FailedToMakeGame => StatusCode::IM_A_TEAPOT,
+           Self::FailedToMakeMovie => StatusCode::IM_A_TEAPOT,
+           Self::FailedToUpdateGame => StatusCode::INTERNAL_SERVER_ERROR,
+           Self::FailedToUpdateMovie => StatusCode::INTERNAL_SERVER_ERROR,
         };
     }
 }
+
+struct MovieDataBase;
+impl MovieDataBase {
+    async fn get_connection() -> Result<rusqlite::Connection, ServiceError> {
+        let db_path = env::var("DB_PATH").unwrap_or("kellum_library.db".to_string());
+        return match Connection::open(db_path) {
+            Ok(conn) => Ok(conn),
+            Err(_) => Err(ServiceError::ConnectionFailure),
+        };
+    }
+
+    async fn new_movie_with(new_movie: Movie) -> Result<bool, ServiceError> { 
+        let conn = Self::get_connection().await?;
+        let res = conn.execute("INSERT INTO(id, title, format, rating) VALUES( 1?, 2?, 3?, 4?)", 
+                                [new_movie.id, new_movie.title, new_movie.format.string(), new_movie.rating.string()]);
+        return match res { 
+            Ok(rows_altered) => if rows_altered > 0 { Ok(true) } else { Ok(false) }, 
+            Err(_) => Err(ServiceError::ConnectionFailure) 
+        };
+    }
+    
+    async fn get_movie_with_id(id: String) -> Result<Option<Movie>, ServiceError> { 
+        let conn = Self::get_connection().await?;
+        let res = conn.query_row_and_then("SELECT id, title, format, rating FROM movies WHERE id=1?", [id], |row| {
+            if let Some(format) = MotionPictureFormat::from_string(&row.get::<usize, String>(2)?) {
+                if let Some(rating) = MPAARating::from_string(&row.get::<usize, String>(3)?) {
+                    return Ok(Movie { id: row.get::<usize, String>(0)?,
+                                      title: row.get::<usize, String>(1)?,
+                                      format, rating });
+                }
+            }
+            return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real, Box::new(ServiceError::GameNotFound)));
+        });
+        return match res {
+            Ok(movie) => Ok(Some(movie)),
+            Err(_) => Err(ServiceError::MovieNotFound)
+        };
+    }
+    async fn get_all_movies() -> Result<Option<Vec<Movie>>, ServiceError> {
+        let conn = Self::get_connection().await?;
+        let mut stmnt = conn.prepare("SELECT id, title, format, rating FROM movies").unwrap();
+        let res = stmnt.query_map([], |row| {
+           if let Some(format) = MotionPictureFormat::from_string(&row.get::<usize, String>(2)?) {
+               if let Some(rating) = MPAARating::from_string(&row.get::<usize, String>(3)?) {
+                    return Ok(Movie{id: row.get::<usize, String>(0)?, title: row.get::<usize, String>(1)?, 
+                                    format, rating});
+               }
+           }
+           return Err(rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Real,
+                      Box::new(ServiceError::GameNotFound)));
+        });
+       return match res {
+           Ok(movies) => {
+               let mut movie_list = vec![]; 
+               movies.for_each(|movie| {
+                   match movie {
+                      Ok(movie) => movie_list.push(movie), 
+                      Err(_) => {}
+                   }
+               });
+               return Ok(Some(movie_list));
+           },
+           Err(_) => Err(ServiceError::MovieNotFound)
+       };
+    }
+
+    async fn update_movie_with(new_movie: Movie) -> Result<bool, ServiceError> { 
+        let conn = Self::get_connection().await?;
+        let res = conn.execute("UPDATE movies SET title=1?, format=2?, rating=3? WHERE id=4?",
+                                [new_movie.title, new_movie.format.string(), new_movie.rating.string(), new_movie.id]);
+        return match res {
+            Ok(row_count) => if row_count > 0 { Ok(true) } else {Ok(false) },
+            Err(_) => Err(ServiceError::FailedToUpdateMovie),
+        }
+    }
+
+    async fn delete_movie(id: Option<String>) -> Result<bool, ServiceError> { 
+        let conn = Self::get_connection().await?;
+        let res = match id {
+            Some(id) => conn.execute("DELETE FROM movies WHERE id=1?", [id]),
+            None => conn.execute("DROP TABLE movies", [])
+        };
+
+        return match res {
+           Ok(_) => Ok(true),
+           Err(_) => Err(ServiceError::MovieNotFound)
+        }
+    }
+
+}
+
 struct GameDataBase;
 impl GameDataBase {
-    
     async fn get_connection() -> Result<rusqlite::Connection, ServiceError> {
         let db_path = env::var("DB_PATH").unwrap_or("kellum_library.db".to_string());
         return match Connection::open(db_path) {
@@ -184,7 +323,7 @@ impl GameDataBase {
                                     if let Some(platform) = PlatformType::platform_from_string(&platform_string) {
                                         if let Some(rating) = ESRBRating::rating_from_string(&rating_string) {
                                             return Ok(Game{id, title: title.to_string(), platform, rating,
-                                                   number_of_players: number});
+                                                           number_of_players: number});
                                         }
                                     }
                                 }
@@ -262,12 +401,21 @@ impl GameDataBase {
 }
 
 #[post("/new")]
+async fn add_movie(new_movie: Json<Movie>) -> Result<impl Responder, ServiceError> {
+    if let Some(movie) = Movie::new(&new_movie.title, &new_movie.format.string(), &new_movie.rating.string()) {
+        let did_insert = MovieDataBase::new_movie_with(movie).await?;
+        return Ok(HttpResponse::Ok().json(did_insert));
+    } else {
+        return Err(ServiceError::ConnectionFailure);
+    }
+}
+
+#[post("/new")]
 async fn add_game(new_game: Json<Game>) -> Result<impl Responder, ServiceError> {
     let real_new_game = Game::new(new_game.title.clone(), &new_game.platform.string(), 
                                   &new_game.rating.string(), new_game.number_of_players);
     if let Some(game) = real_new_game {
         let did_insert = GameDataBase::insert_game(game).await?;
-        println!("receving game new");
         return Ok(HttpResponse::Ok().json(did_insert));
     } else {
         return Err(ServiceError::FailedToMakeGame);
@@ -275,22 +423,44 @@ async fn add_game(new_game: Json<Game>) -> Result<impl Responder, ServiceError> 
 }
 
 #[get("/all")]
+async fn get_all_movies() -> Result<impl Responder, ServiceError> {
+    return match MovieDataBase::get_all_movies().await? {
+       Some(movies) => Ok(HttpResponse::Ok().json(movies)),
+       None => Err(ServiceError::MovieNotFound)
+    };
+}
+
+#[get("/all")]
 async fn get_all_games() -> Result<impl Responder, ServiceError> {
     let resp = match GameDataBase::get_games().await? {
-        Some(games) => HttpResponse::Ok().json(games),
-        None => HttpResponse::NotFound().body("games not Found")
+        Some(games) => Ok(HttpResponse::Ok().json(games)),
+        None => Err(ServiceError::GameNotFound) 
     };
-    return Ok(resp);
+    return resp;
+}
+
+#[get("/{id}")]
+async fn get_movie(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
+    let id = path.into_inner().0;
+    return match MovieDataBase::get_movie_with_id(id).await? {
+        Some(movie) => Ok(HttpResponse::Ok().json(movie)),
+        None => Err(ServiceError::MovieNotFound)
+    };
 }
 
 #[get("/{id}")]
 async fn get_games(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
     let id = path.into_inner().0;
-    let resp = match GameDataBase::get_game_with_id(id).await? {
-        Some(game) => HttpResponse::Ok().json(game),
-        None => HttpResponse::NotFound().body("games not Found")
+    return match GameDataBase::get_game_with_id(id).await? {
+        Some(game) => Ok(HttpResponse::Ok().json(game)),
+        None => Err(ServiceError::GameNotFound) 
     };
-    return Ok(resp);
+}
+
+#[put("/update")]
+async fn update_movie_with(updated_movie: Json<Movie>) -> Result<impl Responder, ServiceError> {
+    let was_updated = MovieDataBase::update_movie_with(updated_movie.into_inner()).await?;
+    return Ok(HttpResponse::Ok().json(was_updated));
 }
 
 #[put("/update")]
@@ -299,10 +469,24 @@ async fn update_game_with(updated_game: Json<Game>) -> Result<impl Responder, Se
     return Ok(HttpResponse::Ok().json(was_updated));
 }
 
+
+#[delete("/remove/{id}")]
+async fn delete_movie_with(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
+    let id = path.into_inner().0;
+    let was_deleted = MovieDataBase::delete_movie(Some(id)).await?;
+    return Ok(HttpResponse::Ok().json(was_deleted));
+}
+
 #[delete("/remove/{id}")]
 async fn delete_game_with(path: Path<(String,)>) -> Result<impl Responder, ServiceError> {
     let id = path.into_inner().0;
     let was_deleted = GameDataBase::delete_game(Some(id)).await?;
+    return Ok(HttpResponse::Ok().json(was_deleted));
+}
+
+#[delete("/remove/all")]
+async fn delete_all_movies() -> Result<impl Responder, ServiceError> {
+    let was_deleted = MovieDataBase::delete_movie(None).await?;
     return Ok(HttpResponse::Ok().json(was_deleted));
 }
 
