@@ -4,10 +4,10 @@ use actix_web::{delete, error, get,
                 middleware::{from_fn, Next}, post, put, 
                 web::{ self, Json, Path}, App, HttpResponse, HttpServer, Responder, 
                 dev::{ServiceRequest, ServiceResponse}, body::MessageBody, Error};
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 use derive_more::derive::{Display, Error};
-use rusqlite::{Connection};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 enum PlatformType {
