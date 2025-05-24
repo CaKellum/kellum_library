@@ -7,7 +7,7 @@ use actix_web::{
     middleware::{from_fn, Next},
     post, put,
     web::{self, Json, Path},
-    App, Error, HttpResponse, HttpServer, Responder,
+    App, Error, HttpMessage, HttpResponse, HttpServer, Responder,
 };
 use derive_more::derive::{Display, Error};
 use rusqlite::Connection;
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::{env, usize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 enum PlatformType {
     Playstation1,
     Playstation2,
@@ -81,7 +81,7 @@ impl PlatformType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 enum ESRBRating {
     Everyone,
     Everyone10,
@@ -551,8 +551,10 @@ async fn add_game(new_game: Json<Game>) -> Result<impl Responder, ServiceError> 
     );
     if let Some(game) = real_new_game {
         let did_insert = GameDataBase::insert_game(game).await?;
+        println!("successfully made game");
         return Ok(HttpResponse::Ok().json(did_insert));
     } else {
+        println!("failed to make game");
         return Err(ServiceError::FailedToMakeGame);
     }
 }
@@ -635,6 +637,8 @@ async fn my_middleware(
     next: Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
     println!("{}", req.path());
+    println!("{}", req.content_type());
+    println!("{}", req.method());
     let res = next.call(req).await;
     return res;
 }
@@ -664,4 +668,37 @@ async fn main() -> Result<(), std::io::Error> {
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_game_encoding() {
+        let str_data = "{
+        \"id\":\"\",
+        \"title\":\"syphon filter 2\",
+        \"platform\":\"Playstation1\",
+        \"rating\":\"Mature\"
+            ,\"number_of_players\":1
+        }";
+
+        let expected_game = Game {
+            id: "".to_string(),
+            title: "syphon filter 2".to_string(),
+            rating: ESRBRating::Mature,
+            platform: PlatformType::Playstation1,
+            number_of_players: 1,
+        };
+
+        let game: Game = serde_json::from_str(str_data).unwrap();
+
+        assert_eq!(expected_game.id, game.id);
+        assert_eq!(expected_game.title, game.title);
+        assert_eq!(expected_game.platform, game.platform);
+        assert_eq!(expected_game.rating, game.rating);
+        assert_eq!(expected_game.number_of_players, game.number_of_players);
+    }
 }
