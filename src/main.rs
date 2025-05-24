@@ -496,8 +496,14 @@ impl GameDataBase {
                                              [updated_game.title, updated_game.platform.string(),
                                              updated_game.number_of_players.to_string()]);
         return match statement_result {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
+            Ok(rows_updated) => {
+                if rows_updated > 0 {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            Err(_) => Err(ServiceError::FailedToUpdateGame),
         };
     }
 
