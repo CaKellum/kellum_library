@@ -13,3 +13,17 @@ CREATE TABLE movies (
     rating TEXT
 );
 
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE,
+    passHash TEXT NOT NULL
+);
+
+CREATE TABLE users_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT UNIQUE NOT NULL, 
+    expiry TEXT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+)
+
+
