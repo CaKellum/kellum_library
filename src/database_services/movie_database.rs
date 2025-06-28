@@ -1,20 +1,12 @@
 use crate::data_models::movie::{MPAARating, MotionPictureFormat, Movie};
+use crate::database_services::database_utilities::get_connection;
 use crate::ServiceError;
-use rusqlite::Connection;
-use std::{env, usize};
+use std::usize;
 
 pub struct MovieDataBase;
 impl MovieDataBase {
-    async fn get_connection() -> Result<rusqlite::Connection, ServiceError> {
-        let db_path = env::var("DB_PATH").unwrap_or("kellum_library.db".to_string());
-        return match Connection::open(db_path) {
-            Ok(conn) => Ok(conn),
-            Err(_) => Err(ServiceError::ConnectionFailure),
-        };
-    }
-
     pub async fn new_movie_with(new_movie: Movie) -> Result<bool, ServiceError> {
-        let conn = Self::get_connection().await?;
+        let conn = get_connection()?;
         let res = conn.execute(
             "INSERT INTO(id, title, format, rating) VALUES( 1?, 2?, 3?, 4?)",
             [
@@ -37,7 +29,7 @@ impl MovieDataBase {
     }
 
     pub async fn get_movie_with_id(id: String) -> Result<Option<Movie>, ServiceError> {
-        let conn = Self::get_connection().await?;
+        let conn = get_connection()?;
         let res = conn.query_row_and_then(
             "SELECT id, title, format, rating FROM movies WHERE id=1?",
             [id],
@@ -68,7 +60,7 @@ impl MovieDataBase {
     }
 
     pub async fn get_all_movies() -> Result<Option<Vec<Movie>>, ServiceError> {
-        let conn = Self::get_connection().await?;
+        let conn = get_connection()?;
         let mut stmnt = conn
             .prepare("SELECT id, title, format, rating FROM movies")
             .unwrap();
@@ -103,7 +95,7 @@ impl MovieDataBase {
     }
 
     pub async fn update_movie_with(new_movie: Movie) -> Result<bool, ServiceError> {
-        let conn = Self::get_connection().await?;
+        let conn = get_connection()?;
         let res = conn.execute(
             "UPDATE movies SET title=1?, format=2?, rating=3? WHERE id=4?",
             [
@@ -126,7 +118,7 @@ impl MovieDataBase {
     }
 
     pub async fn delete_movie(id: Option<String>) -> Result<bool, ServiceError> {
-        let conn = Self::get_connection().await?;
+        let conn = get_connection()?;
         let res = match id {
             Some(id) => conn.execute("DELETE FROM movies WHERE id=1?", [id]),
             None => conn.execute("DROP TABLE movies", []),

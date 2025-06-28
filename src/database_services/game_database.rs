@@ -1,20 +1,11 @@
 use crate::data_models::game::{ESRBRating, Game, PlatformType};
+use crate::database_services::database_utilities::get_connection;
 use crate::ServiceError;
-use rusqlite::Connection;
-use std::{env, usize};
 
 pub struct GameDataBase;
 impl GameDataBase {
-    async fn get_connection() -> Result<rusqlite::Connection, ServiceError> {
-        let db_path = env::var("DB_PATH").unwrap_or("kellum_library.db".to_string());
-        return match Connection::open(db_path) {
-            Ok(conn) => Ok(conn),
-            Err(_) => Err(ServiceError::ConnectionFailure),
-        };
-    }
-
     pub async fn get_game_with_id(id: String) -> Result<Option<Game>, ServiceError> {
-        let conn = GameDataBase::get_connection().await?;
+        let conn = get_connection()?;
         let res = conn.query_row_and_then(
             "SELECT id, title, platform, rating, number_of_players FROM games WHERE id=1?",
             [id],
@@ -49,7 +40,7 @@ impl GameDataBase {
     }
 
     pub async fn get_games() -> Result<Option<Vec<Game>>, ServiceError> {
-        let conn = GameDataBase::get_connection().await?;
+        let conn = get_connection()?;
         let mut statment = conn
             .prepare("SELECT id, title, platform, rating, number_of_players FROM games")
             .unwrap();
@@ -88,7 +79,7 @@ impl GameDataBase {
     }
 
     pub async fn delete_game(id: Option<String>) -> Result<bool, ServiceError> {
-        let conn = GameDataBase::get_connection().await?;
+        let conn = get_connection()?;
         let result = match id {
             Some(id) => conn.execute("DELETE FROM games WHERE id=?1", [id]),
             None => conn.execute("DROP TABLE games", []),
@@ -100,7 +91,7 @@ impl GameDataBase {
     }
 
     pub async fn update_game(updated_game: Game) -> Result<bool, ServiceError> {
-        let conn = GameDataBase::get_connection().await?;
+        let conn = get_connection()?;
         let statement_result = conn.execute("UPDATE games 
                                              SET title=?1, platform=?2, rating=?3, number_of_players=?4 
                                              WHERE id=?5", 
@@ -119,7 +110,7 @@ impl GameDataBase {
     }
 
     pub async fn insert_game(new_game: Game) -> Result<bool, ServiceError> {
-        let conn = GameDataBase::get_connection().await?;
+        let conn = get_connection()?;
         let statement_result = conn.execute(
             "INSERT INTO games (id, title, platform, rating, number_of_players) 
                                              VALUES (?1,?2,?3,?4,?5);",
