@@ -1,5 +1,7 @@
 use crate::database_services::database_utilities::ServiceError;
-use crate::service_endpoints::{game_service::game_scope, movie_service::movie_scope};
+use crate::service_endpoints::{
+    auth_servce::auth_scope, game_service::game_scope, movie_service::movie_scope,
+};
 use actix_web::{
     body::MessageBody,
     dev::{ServiceRequest, ServiceResponse},
@@ -28,6 +30,7 @@ async fn main() -> Result<(), std::io::Error> {
         App::new()
             .service(game_scope())
             .service(movie_scope())
+            .service(auth_scope())
             .wrap(from_fn(my_middleware))
     })
     .bind(("127.0.0.1", 8080))?

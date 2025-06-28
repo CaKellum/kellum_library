@@ -1,11 +1,14 @@
 use actix_web::{
     error::ResponseError,
-    get, post,
-    web::{scope, Json, Path},
+    http::StatusCode,
+    post,
+    web::{scope, Json},
     HttpResponse, Responder, Scope,
 };
-use rusqlite::{self, auto_extension::register_auto_extension};
+use derive_more::{Display, Error};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use std::env;
 use uuid::Uuid;
 
 #[derive(Debug, Display, Error)]
@@ -22,7 +25,7 @@ pub enum AuthServiceError {
     SuspiciousRequest,
 }
 
-impl error::ResponseError for AuthServiceError {}
+impl ResponseError for AuthServiceError {}
 
 #[derive(Serialize, Deserialize)]
 pub struct User {
@@ -38,13 +41,10 @@ pub struct LoginRequest {
 
 #[post("/login")]
 async fn login_user(body: Json<LoginRequest>) -> Result<impl Responder, AuthServiceError> {
-    // check to make sure user exist
-    // if exists:
-    //      validagte no current session has user_id equal to the user loging in
-    //      if they do return old seession else:
-    //          create session id and insert it in to users_sessions
-    // else:
-    //  return error
+    let login_req = body.into_inner();
+    let id = get_user_id(login_req.username.clone(), login_req.pash_hash)?;
+    let user = create_session_id(id, login_req.username)?;
+    Ok(HttpResponse::Ok().json(user))
 }
 
 #[post("/register")]
@@ -52,19 +52,65 @@ async fn register_user() -> Result<impl Responder, AuthServiceError> {
     // validate new user doesn't exist
     // if does return error else:
     //      create user then log in the user
+    Ok(HttpResponse::Ok()
+        .status(StatusCode::IM_A_TEAPOT)
+        .body("teapot"))
+}
+
+fn get_connection() -> Result<Connection, AuthServiceError> {
+    let db_path = env::var("DB_PATH").unwrap_or("kellum_library.db".to_string());
+    return match Connection::open(db_path) {
+        Ok(conn) => Ok(conn),
+        Err(_) => Err(AuthServiceError::FailedToRegister),
+    };
+}
+
+fn get_user_id(name: String, pass: String) -> Result<String, AuthServiceError> {
+    let conn = get_connection()?;
+    let res = conn.query_row(
+        "SELECT id FROM users WHERE username == 1? && passHash == 2?",
+        [name, pass],
+        |row| {
+            let id = row.get::<usize, String>(0)?;
+            return Ok(id);
+        },
+    );
+    return match res {
+        Ok(id) => Ok(id),
+        Err(_) => Err(AuthServiceError::FailedToAuthenticate),
+    };
 }
 
 pub async fn validate_user_session(session_id: String) -> Result<User, AuthServiceError> {
-    // get connection
-    // look for session_id
-    // if no session:
-    //     return error
-    // else:
-    //     return User information
+    let conn = get_connection()?;
+    // TODO: Deal with the expiry in the session
+    let res = conn.query_row("SELECT us.id, u.username FROM user_sessions as us INNER JOIN users as u on us.user_id = u.id WHERE us.id == 1?", 
+        [session_id],
+        |row| {
+        let id = row.get(0)?;
+        let user_name= row.get(1)?;
+        return Ok(User{ username: user_name, user_session: id });
+    });
+
+    return match res {
+        Ok(user) => Ok(user),
+        Err(_) => Err(AuthServiceError::InvalidSessionToken),
+    };
 }
 
-fn create_session_id(user: User) -> String {
-    return "".to_string();
+fn create_session_id(user_id: String, name: String) -> Result<User, AuthServiceError> {
+    let session_id = Uuid::new_v4().to_string();
+    let res = get_connection()?.execute(
+        "INSERT INTO user_sessions(id, user_id, expiry) VALUES(1?, 2?, 3?)",
+        [session_id.clone(), user_id, "".to_string()],
+    );
+    match res {
+        Ok(_) => Ok(User {
+            username: name,
+            user_session: session_id,
+        }),
+        Err(_) => Err(AuthServiceError::FailedToAuthenticate),
+    }
 }
 
 pub fn validate_request() -> Result<(), AuthServiceError> {
