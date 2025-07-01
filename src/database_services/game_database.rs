@@ -1,6 +1,6 @@
 use crate::data_models::game::{ESRBRating, Game, PlatformType};
 use crate::database_services::database_utilities::get_connection;
-use crate::ServiceError;
+use crate::errors::servive_errors::ServiceError;
 
 pub struct GameDataBase;
 impl GameDataBase {

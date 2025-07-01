@@ -1,5 +1,6 @@
 use crate::data_models::game::Game;
-use crate::database_services::{database_utilities::ServiceError, game_database::GameDataBase};
+use crate::database_services::game_database::GameDataBase;
+use crate::errors::servive_errors::ServiceError;
 use actix_web::{
     delete, get, post, put,
     web::{scope, Json, Path},

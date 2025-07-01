@@ -1,4 +1,3 @@
-use crate::database_services::database_utilities::ServiceError;
 use crate::service_endpoints::{
     auth_servce::auth_scope, game_service::game_scope, movie_service::movie_scope,
 };
@@ -11,6 +10,7 @@ use actix_web::{
 
 pub mod data_models;
 pub mod database_services;
+pub mod errors;
 pub mod service_endpoints;
 
 //TODO: Move to own module

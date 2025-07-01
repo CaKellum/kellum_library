@@ -1,14 +1,12 @@
 use crate::data_models::auth_models::LoginRequest;
-use crate::database_services::authentication_services::{
-    create_session_id, get_user_id, AuthServiceError,
-};
+use crate::database_services::authentication_services::{create_session_id, get_user_id};
+use crate::errors::auth_errors::AuthServiceError;
 use actix_web::{
     http::StatusCode,
     post,
     web::{scope, Json},
     HttpResponse, Responder, Scope,
 };
-// TODO: Finish implementing
 
 #[post("/login")]
 async fn login_user(body: Json<LoginRequest>) -> Result<impl Responder, AuthServiceError> {
@@ -18,6 +16,7 @@ async fn login_user(body: Json<LoginRequest>) -> Result<impl Responder, AuthServ
     Ok(HttpResponse::Ok().json(user))
 }
 
+// TODO: Finish implementing
 #[post("/register")]
 async fn register_user() -> Result<impl Responder, AuthServiceError> {
     // validate new user doesn't exist

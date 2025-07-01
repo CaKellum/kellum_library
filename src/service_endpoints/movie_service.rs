@@ -1,5 +1,6 @@
 use crate::data_models::movie::Movie;
-use crate::database_services::{database_utilities::ServiceError, movie_database::MovieDataBase};
+use crate::database_services::movie_database::MovieDataBase;
+use crate::errors::servive_errors::ServiceError;
 use actix_web::{
     delete, get, post, put,
     web::{scope, Json, Path},
