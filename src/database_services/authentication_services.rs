@@ -6,6 +6,7 @@ use actix_web::{http::header::ContentType, HttpResponse};
 use derive_more::{Display, Error};
 use uuid::Uuid;
 
+// TODO: Move to their own directory
 #[derive(Debug, Display, Error)]
 pub enum AuthServiceError {
     #[display("Failed to register user")]

@@ -13,6 +13,7 @@ pub mod data_models;
 pub mod database_services;
 pub mod service_endpoints;
 
+//TODO: Move to own module
 async fn my_middleware(
     req: ServiceRequest,
     next: Next<impl MessageBody>,
@@ -38,6 +39,7 @@ async fn main() -> Result<(), std::io::Error> {
     .await
 }
 
+// TODO: Move to test directory
 #[cfg(test)]
 mod tests {
     use crate::data_models::{game::*, movie::*};

@@ -8,6 +8,7 @@ use actix_web::{
     web::{scope, Json},
     HttpResponse, Responder, Scope,
 };
+// TODO: Finish implementing
 
 #[post("/login")]
 async fn login_user(body: Json<LoginRequest>) -> Result<impl Responder, AuthServiceError> {
