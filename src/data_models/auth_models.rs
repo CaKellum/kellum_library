@@ -9,5 +9,5 @@ pub struct User {
 #[derive(Serialize, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
-    pub pash_hash: String,
+    pub pass_hash: String,
 }

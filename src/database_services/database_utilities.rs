@@ -1,5 +1,5 @@
 use crate::errors::servive_errors::ServiceError;
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{self, offset::LocalResult, DateTime, TimeDelta, Utc};
 use rusqlite::{functions::FunctionFlags, Connection};
 use std::{env, sync::Arc};
 
@@ -23,7 +23,7 @@ fn add_is_expired(conn: &Connection) -> Result<(), ServiceError> {
             let date: Result<Arc<chrono::DateTime<Utc>>, rusqlite::Error> =
                 ctx.get_or_create_aux(0, |value| {
                     let str_val = value.as_str().unwrap();
-                    let fixed_date = DateTime::parse_from_str(str_val, "").unwrap();
+                    let fixed_date = DateTime::parse_from_rfc3339(str_val).unwrap();
                     return Ok::<chrono::DateTime<Utc>, rusqlite::Error>(fixed_date.to_utc());
                 });
             let date: chrono::DateTime<Utc> = (*date.unwrap()).into();
@@ -43,9 +43,9 @@ fn add_get_expiry(conn: &Connection) -> Result<(), ServiceError> {
             let duration = TimeDelta::hours(2);
             let expiry_time = now.time().overflowing_add_signed(duration).0;
             let expires_at: DateTime<Utc> = match now.with_time(expiry_time) {
-                chrono::offset::LocalResult::Single(time) => time,
-                chrono::offset::LocalResult::None => now,
-                chrono::offset::LocalResult::Ambiguous(early_time, _) => early_time,
+                LocalResult::Single(time) => time,
+                LocalResult::None => now,
+                LocalResult::Ambiguous(early_time, _) => early_time,
             };
             let str_val = expires_at.to_rfc3339();
             return Ok(str_val);
